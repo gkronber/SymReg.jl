@@ -1,0 +1,70 @@
+name: CI
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+# Every job is skipped while the repository is private.
+jobs:
+  test:
+    if: ${{ !github.event.repository.private }}
+    name: ${{ matrix.package }} - Julia ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
+      actions: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [SymRegInterpreter, SymRegLikelihoods, SymRegModelSelection]
+        version: ['1.13', '1', 'pre'] # '1.13' is the julia compat lower bound
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-runtest@v1
+        with:
+          project: ${{ matrix.package }}
+          coverage: ${{ matrix.version == '1' }}
+      - uses: julia-actions/julia-processcoverage@v1
+        if: matrix.version == '1'
+        with:
+          directories: ${{ matrix.package }}/src
+      - uses: codecov/codecov-action@v7
+        if: matrix.version == '1'
+        with:
+          files: lcov.info
+          flags: ${{ matrix.package }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  downgrade:
+    if: ${{ !github.event.repository.private }}
+    name: ${{ matrix.package }} - lowest compatible versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [SymRegInterpreter, SymRegLikelihoods, SymRegModelSelection]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.13'
+      - uses: julia-actions/julia-downgrade-compat@v2
+        with:
+          projects: ${{ matrix.package }}
+          skip: GeodesicLM,SymRegInterpreter,SymRegLikelihoods,DelimitedFiles,LinearAlgebra,Logging,Printf,Random,Test
+      - uses: julia-actions/julia-runtest@v1
+        with:
+          project: ${{ matrix.package }}
+          coverage: false
+          allow_reresolve: false

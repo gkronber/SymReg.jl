@@ -1,0 +1,44 @@
+name: Benchmark
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'SymRegInterpreter/**'
+      - 'SymRegLikelihoods/**'
+      - '.github/workflows/Benchmark.yml'
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+# Every job is skipped while the repository is private.
+jobs:
+  benchmark:
+    if: ${{ !github.event.repository.private }}
+    name: ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [SymRegInterpreter, SymRegLikelihoods]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # run_benchmarks.jl archives the base revision
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Instantiate the benchmark environment
+        run: julia --project=${{ matrix.package }}/benchmark -e 'using Pkg; Pkg.instantiate()'
+      - name: Run every benchmark once
+        run: julia --project=${{ matrix.package }}/benchmark ${{ matrix.package }}/benchmark/run_suite.jl
+      # Timings on shared runners are noisy; the allocation table is the reliable part.
+      - name: Compare with the base of the pull request
+        if: github.event_name == 'pull_request'
+        working-directory: ${{ matrix.package }}
+        run: >
+          julia --project=benchmark benchmark/run_benchmarks.jl
+          ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
+          | tee -a "$GITHUB_STEP_SUMMARY"
