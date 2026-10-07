@@ -221,6 +221,15 @@ using Random
         @test vec(sum(jac3; dims = 1)) ≈ grad3
     end
 
+    # libm (`_pow`, `_exp`, ...) and Base agree exactly on zero, infinite and NaN
+    # results; finite results may differ in the last bits (glibc differs from Base
+    # where Apple's libm does not), within 2 ulps
+    agree(a, b) = isequal(a, b) || (isfinite(a) && isfinite(b) && signbit(a) == signbit(b) &&
+                                    abs(a - b) <= 2 * eps(max(abs(a), abs(b))))
+    # up to 10 argument tuples where `f` and `g` disagree, with both results, so
+    # that a failing test shows them
+    disagreements(f, g, args) = first([(v, f(v...), g(v...)) for v in args if !agree(f(v...), g(v...))], 10)
+
     @testset "POW: libm pow behind the NaN guard of NaNMath.pow" begin
         rng = Xoshiro(8)
         pw = SymRegInterpreter._pow
@@ -231,13 +240,10 @@ using Random
             y = T.([isodd(i) ? 2 * randn(rng) : rand(rng, -3:3) for i in 1:10_000])
             # two ulps: for y == -2 Base computes inv(x)^2, up to ≈ 1.8 ulp from
             # the exact value, while libm stays within half an ulp
-            @test all(eachindex(x)) do i
-                a = pw(x[i], y[i]); b = nanpow(x[i], y[i])
-                isequal(a, b) || abs(a - b) <= 2 * eps(abs(b))
-            end
+            @test isempty(disagreements(pw, nanpow, zip(x, y)))
             sx = T[0, -0.0, 1, -1, -2, Inf, -Inf, NaN, nextfloat(T(0)), floatmin(T), floatmax(T), 2, 0.5, -0.5]
             sy = T[0, -0.0, 1, -1, 2, -2, 3, 0.5, -0.5, 2.5, -2.5, Inf, -Inf, NaN, 200, -200]
-            @test all(((a, b),) -> isequal(pw(a, b), nanpow(a, b)), Iterators.product(sx, sy))
+            @test isempty(disagreements(pw, nanpow, Iterators.product(sx, sy)))
         end
     end
 
@@ -247,23 +253,22 @@ using Random
         llog = SymRegInterpreter._log
         for T in (Float32, Float64)
             # two ulps: Base's Float32 exp alone is up to ≈ 0.84 ulp off
-            near(a, b) = isequal(a, b) || abs(a - b) <= 2 * eps(abs(b))
             x = T.(10 .* randn(rng, 10_000))
-            @test all(i -> near(lexp(x[i]), exp(x[i])), eachindex(x))
+            @test isempty(disagreements(lexp, exp, zip(x)))
             z = T.(exp.(10 .* randn(rng, 10_000)))
-            @test all(i -> near(llog(z[i]), log(z[i])), eachindex(z))
+            @test isempty(disagreements(llog, log, zip(z)))
             # special cases as in Base (log only for x >= 0, the kernels guard the rest)
             se = T[0, -0.0, 1, -1, Inf, -Inf, NaN, nextfloat(T(0)), floatmin(T), floatmax(T), 88.7, -103.9, 709.7, -745.1]
-            @test all(v -> isequal(lexp(v), exp(v)), se)
+            @test isempty(disagreements(lexp, exp, zip(se)))
             sl = T[0, -0.0, 1, Inf, NaN, nextfloat(T(0)), floatmin(T), floatmax(T), 0.5, 2]
-            @test all(v -> isequal(llog(v), log(v)), sl)
+            @test isempty(disagreements(llog, log, zip(sl)))
 
             # the kernels' guards: LOG of a negative argument and LOGABS of zero are NaN
             X = reshape(T[-2, -0.0, 0, 0.5, 3], :, 1)
             mlog = Model(T, Expr(:->, :(x, p), :(log(x[1]))), 0)
             mlogabs = Model(T, Expr(:->, :(x, p), :(log(abs(x[1])))), 0)
-            @test isequal(interpret_vec(mlog, X, T[]), T[NaN, -Inf, -Inf, log(T(0.5)), log(T(3))])
-            @test isequal(interpret_vec(mlogabs, X, T[]), T[log(T(2)), NaN, NaN, log(T(0.5)), log(T(3))])
+            @test all(agree.(interpret_vec(mlog, X, T[]), T[NaN, -Inf, -Inf, log(T(0.5)), log(T(3))]))
+            @test all(agree.(interpret_vec(mlogabs, X, T[]), T[log(T(2)), NaN, NaN, log(T(0.5)), log(T(3))]))
         end
 
         # ForwardDiff duals take Base's exp / log; derivatives match ForwardDiff on
@@ -285,15 +290,11 @@ using Random
         for T in (Float32, Float64)
             x = T.(exp.(2 .* randn(rng, 10_000)) .* rand(rng, (-1, 1), 10_000))
             y = T.(2 .* randn(rng, 10_000))
-            # libm and Base are both within about half an ulp of the exact value
-            @test all(eachindex(x)) do i
-                a = powabs(x[i], y[i]); b = abs(x[i])^y[i]
-                isequal(a, b) || abs(a - b) <= eps(b)
-            end
+            @test isempty(disagreements(powabs, (a, b) -> abs(a)^b, zip(x, y)))
             # special cases as in Base
             sx = T[0, -0.0, 1, -1, Inf, -Inf, NaN, nextfloat(T(0)), floatmin(T), floatmax(T), 2, 0.5]
             sy = T[0, -0.0, 1, -1, 0.5, -0.5, 2.5, -2.5, Inf, -Inf, NaN, 200, -200]
-            @test all(((a, b),) -> isequal(powabs(a, b), abs(a)^b), Iterators.product(sx, sy))
+            @test isempty(disagreements(powabs, (a, b) -> abs(a)^b, Iterators.product(sx, sy)))
         end
 
         # ForwardDiff duals take Base ^ and ForwardDiff's rule: derivatives of the
