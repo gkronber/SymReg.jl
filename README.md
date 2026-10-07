@@ -1,5 +1,9 @@
 # SymReg.jl
 
+[![CI](https://github.com/gkronber/SymReg.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/gkronber/SymReg.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Coverage](https://codecov.io/gh/gkronber/SymReg.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/gkronber/SymReg.jl)
+[![Benchmarks](https://img.shields.io/badge/benchmarks-history-blue)](https://gkronber.github.io/SymReg.jl/dev/bench/)
+
 Julia packages for fitting and comparing symbolic regression models, shared by
 symbolic regression algorithms such as [NeoGP](https://github.com/gkronber/NeoGP.jl):
 
@@ -51,8 +55,12 @@ Run the tests of a package with
 julia --project=SymRegLikelihoods -e 'using Pkg; Pkg.test()'
 ```
 
-Each package has a benchmark suite in its `benchmark/` folder, and
-`coverage/run_coverage.jl` collects the test coverage of all three packages.
+Each package has a benchmark suite in its `benchmark/` folder.  CI compares a pull
+request with its base in the job summary and adds every push to `main` to the
+[benchmark history](https://gkronber.github.io/SymReg.jl/dev/bench/); the timings
+come from shared runners, so only large changes are meaningful there.  Test coverage
+per package is on [Codecov](https://codecov.io/gh/gkronber/SymReg.jl), and
+`coverage/run_coverage.jl` collects it locally.
 
 ## License
 

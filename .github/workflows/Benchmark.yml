@@ -33,7 +33,13 @@ jobs:
       - name: Instantiate the benchmark environment
         run: julia --project=${{ matrix.package }}/benchmark -e 'using Pkg; Pkg.instantiate()'
       - name: Run every benchmark once
-        run: julia --project=${{ matrix.package }}/benchmark ${{ matrix.package }}/benchmark/run_suite.jl
+        run: >
+          julia --project=${{ matrix.package }}/benchmark ${{ matrix.package }}/benchmark/run_suite.jl
+          "$GITHUB_WORKSPACE/benchmark-${{ matrix.package }}.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-${{ matrix.package }}
+          path: benchmark-${{ matrix.package }}.json
       # Timings on shared runners are noisy; the allocation table is the reliable part.
       - name: Compare with the base of the pull request
         if: github.event_name == 'pull_request'
@@ -42,3 +48,41 @@ jobs:
           julia --project=benchmark benchmark/run_benchmarks.jl
           ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
           | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Adds the medians of every push to main to the charts on GitHub Pages
+  # (gh-pages branch, dev/bench).  One job for both packages, so that the two
+  # updates of gh-pages do not race.
+  history:
+    if: ${{ !github.event.repository.private && github.event_name == 'push' }}
+    needs: benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # push to gh-pages
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: benchmark-*
+          merge-multiple: true
+      - name: Store the SymRegInterpreter results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: SymRegInterpreter
+          tool: julia
+          output-file-path: benchmark-SymRegInterpreter.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          # shared runners: report only large slowdowns, in the job summary
+          alert-threshold: '200%'
+          summary-always: true
+      - name: Store the SymRegLikelihoods results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: SymRegLikelihoods
+          tool: julia
+          output-file-path: benchmark-SymRegLikelihoods.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: '200%'
+          summary-always: true

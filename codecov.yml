@@ -1,0 +1,21 @@
+# One flag per package (set by the CI workflow); coverage is reported, never blocks.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: SymRegInterpreter
+      paths: [SymRegInterpreter/src/]
+    - name: SymRegLikelihoods
+      paths: [SymRegLikelihoods/src/]
+    - name: SymRegModelSelection
+      paths: [SymRegModelSelection/src/]
+comment:
+  layout: "diff, flags, files"
