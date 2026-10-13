@@ -53,14 +53,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # julia-downgrade-compat ignores `url` sources (GeodesicLM), so it cannot
-        # resolve SymRegLikelihoods and SymRegModelSelection
-        package: [SymRegInterpreter]
+        package: [SymRegInterpreter, SymRegLikelihoods, SymRegModelSelection]
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1.13'
+      # julia-downgrade-compat keeps only path sources in the manifest.
+      - name: Check out the url sources as path sources
+        run: julia .github/scripts/url_sources_to_paths.jl ${{ matrix.package }} "$RUNNER_TEMP/sources"
       - uses: julia-actions/julia-downgrade-compat@v2
         with:
           projects: ${{ matrix.package }}
