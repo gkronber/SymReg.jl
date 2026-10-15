@@ -256,7 +256,9 @@ end
 
 Print the expression computed by instruction `pos` of `code` (by default the
 root) in infix notation.  Parameters are printed with their current values and
-variables as `X1, X2, …` or by their names in `varnames`.
+variables as `X1, X2, …` or by their names in `varnames`.  Powers are parenthesized,
+as is a negative number as their base, so the operator precedence of the printed
+expression is that of the code.
 """
 function print_program(io::IO, code::AbstractVector{Instruction{T}}, varnames=nothing, pos::Int=length(code)) where {T}
     @assert pos > 0 && pos <= length(code) "invalid instruction index $pos"
@@ -288,8 +290,9 @@ function print_program(io::IO, code::AbstractVector{Instruction{T}}, varnames=no
                 print_program(io, code, varnames, a)
                 print(io, ")")
             else
-                print_program(io, code, varnames, a)
-                print(io, " ^ $(instr.val)")
+                print(io, "(")
+                _print_base(io, code, varnames, a)
+                print(io, " ^ $(instr.val))")
             end
         else
             # wrappers
@@ -302,15 +305,17 @@ function print_program(io::IO, code::AbstractVector{Instruction{T}}, varnames=no
         if opc == SymRegInterpreter.ADD || opc == SymRegInterpreter.SUB || opc == SymRegInterpreter.MUL ||
            opc == SymRegInterpreter.DIV || opc == SymRegInterpreter.POW
             print(io, "(")
-            print_program(io, code, varnames, l)
+            opc == SymRegInterpreter.POW ? _print_base(io, code, varnames, l) :
+                                           print_program(io, code, varnames, l)
             print(io, " ", _binary_name(opc), " ")
             print_program(io, code, varnames, r)
             print(io, ")")
         elseif opc == SymRegInterpreter.POWABS
-            print(io, "abs(")
+            print(io, "(abs(")
             print_program(io, code, varnames, l)
             print(io, ") ^ ")
             print_program(io, code, varnames, r)
+            print(io, ")")
         else
             # other functions: f(a,b)
             print(io, string(opc), "(")
@@ -320,6 +325,17 @@ function print_program(io::IO, code::AbstractVector{Instruction{T}}, varnames=no
             print(io, ")")
         end
     end
+    nothing
+end
+
+# Print the base of a power.  A negative number is parenthesized, because `-a ^ b`
+# is `-(a ^ b)`.
+function _print_base(io::IO, code::AbstractVector{<:Instruction}, varnames, pos::Int)
+    instr = code[pos]
+    negative = (instr.opcode == CONSTANT || instr.opcode == PARAM) && signbit(instr.val)
+    negative && print(io, "(")
+    print_program(io, code, varnames, pos)
+    negative && print(io, ")")
     nothing
 end
 

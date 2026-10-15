@@ -849,6 +849,35 @@ using Random
     end
 end
 
+@testset "print_program: precedence of powers" begin
+    using SymRegInterpreter: print_program
+    I = Instruction{Float64}
+    v(i) = create_var_instruction(Float64, i)
+    p(i, val) = create_param_instruction(Float64, i; val)
+    cases = [
+        [v(1), v(2), I(POWABS, 1, 2, 0.0), p(1, 0.5), I(POW, 3, 4, 0.0)] => "((abs(x1) ^ x2) ^ 0.5)",
+        [v(1), I(POWCONST, 1, 0, 2.0), v(2), I(POW, 2, 3, 0.0)] => "((x1 ^ 2.0) ^ x2)",
+        [p(1, -1.5), v(1), I(POW, 1, 2, 0.0)] => "((-1.5) ^ x1)",
+        [p(1, -1.5), I(POWCONST, 1, 0, 2.0)] => "((-1.5) ^ 2.0)",
+        [v(1), p(1, -1.5), I(POW, 1, 2, 0.0)] => "(x1 ^ -1.5)",
+        [v(2), v(1), p(1, -2.0), I(POWABS, 2, 3, 0.0), I(MUL, 1, 4, 0.0)] => "(x2 * (abs(x1) ^ -2.0))",
+    ]
+    x1, x2 = 1.7, 0.6
+    for (c, s) in cases
+        @test sprint(print_program, c, ["x1", "x2"]) == s
+        # the printed expression parses to the expression of the code
+        pvals = [c[i].val for i in eachindex(c) if c[i].opcode == PARAM]
+        want = interpret_vec(Model{Float64}(c, length(pvals)), [x1 x2], pvals)[1]
+        got = try
+            Base.eval(@__MODULE__, :(let x1 = $x1, x2 = $x2; $(Meta.parse(s)) end))
+        catch e
+            e isa DomainError || rethrow()
+            NaN  # Base `^` throws where the interpreter returns NaN
+        end
+        @test isequal(got, want) || got ≈ want
+    end
+end
+
 
 
 @testset "every public name has a docstring" begin
