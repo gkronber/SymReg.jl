@@ -65,3 +65,14 @@ per package is on [Codecov](https://codecov.io/gh/gkronber/SymReg.jl), and
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Funding
+Development of this software is mainly driven by the Heuristic and Evolutionary Algorithms Laboratory (HEAL), part of University of Applied Sciences Upper Austria, Hagenberg Campus.
+
+This work has been supported by:
+
+- Austrian Federal Ministry for Climate Action, Environment,
+Energy, Mobility, Innovation and Technology, the Federal Ministry for Labour and Economy, and
+the regional government of Upper Austria within the COMET project ProMetHeus (904919) supported by the Austrian Research Promotion Agency (FFG)
+
+- The COMET Center of the Linz Center of Mechatronics (LCM) funded by the Austrian federal government and the federal state of Upper Austria.
