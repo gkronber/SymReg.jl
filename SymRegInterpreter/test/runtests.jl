@@ -1,6 +1,6 @@
 using SymRegInterpreter
-using SymRegInterpreter: Instruction, Opcode, ABS, ADD, CONSTANT, COS, DIV, LOG, LOGABS,
-    MUL, PARAM, POW, POWABS, POWCONST, SCALEDVAR, SIN, SQR, SQRT, SQRTABS, VAR,
+using SymRegInterpreter: Instruction, Opcode, ABS, ADD, ASIN, CONSTANT, COS, DIV, LOG, LOGABS,
+    MUL, PARAM, POW, POWABS, POWCONST, SCALEDVAR, SIN, SQR, SQRT, SQRTABS, TAN, VAR,
     terminal_opcodes, unary_opcodes, binary_opcodes, opcode, degree,
     create_param_instruction, create_var_instruction, create_scaledvar_instruction,
     code, expr, core_expr, replace_param_with_const, differentiate,
@@ -308,6 +308,53 @@ using Random
         grad = zeros(Float32, 2)
         interpret_grad!(grad, m, X, p)
         @test grad ≈ g
+    end
+
+    @testset "special arguments give NaN, never a DomainError" begin
+        for T in (Float32, Float64)
+            vals = T[0, -0.0, 1, -1, 2, -2, 0.5, -0.5, Inf, -Inf, NaN,
+                     nextfloat(T(0)), floatmin(T), floatmax(T), -floatmax(T)]
+            n = length(vals)
+            X = [repeat(vals, n) repeat(vals; inner = n)]
+            p = ones(T, 2)
+            # a = x[1] * p[1] and b = x[2] * p[2], so that the reverse sweeps reach a parameter
+            pre = [create_var_instruction(T, 1), create_param_instruction(T, 1), Instruction{T}(MUL, UInt32(1), UInt32(2), zero(T)),
+                   create_var_instruction(T, 2), create_param_instruction(T, 2), Instruction{T}(MUL, UInt32(4), UInt32(5), zero(T))]
+            progs = [[[pre; Instruction{T}(opc, UInt32(3), UInt32(0), zero(T))] for opc in unary_opcodes if opc != POWCONST];
+                     [[pre; Instruction{T}(POWCONST, UInt32(3), UInt32(0), e)] for e in T[0, 0.5, -0.5, 2, -1, 3]];
+                     [[pre; Instruction{T}(opc, UInt32(3), UInt32(6), zero(T))] for opc in binary_opcodes]]
+            paths = (
+                "interpret_vec" => c -> interpret_vec(c, X, p),
+                "interpret_grad!" => c -> interpret_grad!(zeros(T, 2), c, X, p),
+                "interpret_jac!" => c -> interpret_jac!(zeros(T, size(X, 1)), zeros(T, size(X, 1), 2), zeros(T, size(X)), c, X, p),
+                "ForwardDiff" => c -> ForwardDiff.gradient(pp -> interpret(c, X, pp), p),
+                "ForwardDiff over interpret_grad!" => c -> ForwardDiff.jacobian(pp -> (g = zeros(eltype(pp), 2); interpret_grad!(g, c, X, pp); g), p),
+                "differentiate" => c -> (d = differentiate(c, 1); interpret_grad!(zeros(T, 2), d[1][1:d[3]], X, p)))
+            failures = []
+            for c in progs, (name, path) in paths
+                try
+                    path(c)
+                catch e
+                    push!(failures, (T, last(c).opcode, last(c).val, name, e))
+                end
+            end
+            @test isempty(failures)
+
+            # outside the domain the value and its derivatives are NaN
+            for (opc, outside) in ((SIN, isinf), (COS, isinf), (TAN, isinf), (ASIN, x -> abs(x) > 1))
+                c = [pre; Instruction{T}(opc, UInt32(3), UInt32(0), zero(T))]
+                rows = findall(outside, X[:, 1])
+                y = zeros(T, size(X, 1))
+                jacp = zeros(T, size(X, 1), 2)
+                jacx = zeros(T, size(X))
+                interpret_jac!(y, jacp, jacx, c, X, p)
+                dcode, _, dfidx = differentiate(c, 1)
+                @test all(isnan, y[rows])
+                @test all(isnan, jacp[rows, 1])
+                @test all(isnan, jacx[rows, 1])
+                @test all(isnan, interpret_vec(dcode[1:dfidx], X, p)[rows])
+            end
+        end
     end
 
     @testset "mixed Float32 data / Float64 param" begin

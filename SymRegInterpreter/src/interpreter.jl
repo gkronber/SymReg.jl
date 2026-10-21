@@ -792,14 +792,14 @@ end
 function _vec_rev_asin!(argDiff, arg, cur, diff, tmp::AbstractVector{TE}) where {TE<:Real}
     @simd for i in eachindex(diff)
         if arg[i] * arg[i] != one(TE)
-            @inbounds argDiff[i] += diff[i] / sqrt(one(TE) - arg[i] * arg[i])
+            @inbounds argDiff[i] += diff[i] / NaNMath.sqrt(one(TE) - arg[i] * arg[i])
         end
     end
     nothing
 end
 function _vec_rev_tan!(argDiff, arg, cur, diff, tmp::AbstractVector{TE}) where {TE<:Real}
     @simd for i in eachindex(diff)
-        t = cos(arg[i])
+        t = NaNMath.cos(arg[i])
         if t != zero(TE)
             @inbounds argDiff[i] += diff[i] / (t * t)
         end
