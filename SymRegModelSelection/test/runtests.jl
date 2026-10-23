@@ -250,23 +250,48 @@ end
     end
 end
 
-@testset "param_complexity_det sums its two terms" begin
-    # Eq. 6 of arXiv:2304.06333 replaces the `Σ_α ½ log(I_αα) - (p/2) log(3)`
-    # group of Eq. 5 by `½ log det(I) + (p/2) log(v_p)`, two separate summands
-    # with `log(v_p) = 1 - log(3)`.  They used to be grouped as
-    # `(log det I + p)/2 * log(v_p)`, which scales the log-determinant by
-    # `log(v_p) ≈ -0.0986` as well and turns the complexity negative.
+@testset "param_complexity_det: Eq. 5 of arXiv:2304.06333 with a joint lattice" begin
+    # `Σ_α ½ log(I_αα) - (p/2) log(3)` of Eq. 5 is replaced by
+    # `½ log det(I) + (p/2) log(v_p)`, `log(v_p) = 1 - log(3)`; `Σ_α log|θ_α|` remains
+    half_log_vp = (1 - log(3)) / 2
     pc = param_complexity(p_ls, l_fixed, m)
     pcd = param_complexity_det(p_ls, l_fixed, m)
     @test pcd > 0
-    @test 0.5 < pcd / pc < 2      # the three estimators stay in the same range
+    @test 0.5 < pcd / pc < 2      # the estimators stay in the same range
+    # per direction of the information matrix in relative coordinates, clamped
+    # like param_complexity_rot
+    FI = information_matrix(l_fixed, m, p_ls)
+    D = Diagonal(abs.(p_ls))
+    μ = eigvals(Symmetric(D * FI * D))
+    @test pcd ≈ sum(log(2) + max(0.0, log(x) / 2 + half_log_vp - log(2)) for x in μ)
 
-    # the two summands, formed here without going through the implementation
-    sv = svdvals(information_matrix(l_fixed, m, p_ls))
-    @test length(sv) == 2                              # full rank, so r == p
-    @test pcd ≈ sum(log, sv) / 2 + length(sv) / 2 * (1 - log(3))
-    # and the grouping that was there before is a different number
-    @test !isapprox(pcd, (sum(log, sv) + length(sv)) / 2 * (1 - log(3)))
+    # well-determined parameters: nothing is clamped and the value is the formula
+    xs = collect(range(1.0, 3.0; length = 200))
+    ys = 2 .* xs .+ 0.5 .+ 0.1 .* sin.(7 .* xs)
+    lw = GaussianLikelihood(reshape(xs, :, 1), ys, 0.1)
+    pw = [ones(length(xs)) xs] \ ys
+    pw = [pw[2], pw[1]]
+    FIw = information_matrix(lw, m, pw)
+    pcw = param_complexity_det(pw, lw, m)
+    @test pcw ≈ logdet(Symmetric(FIw)) / 2 + sum(log ∘ abs, pw) + 2 * half_log_vp
+
+    # the same function in other units of x has the same complexity
+    c = 1e6
+    lc = GaussianLikelihood(reshape(c .* xs, :, 1), ys, 0.1)
+    pcw_c = param_complexity_det([pw[1] / c, pw[2]], lc, m)
+    @test pcw_c ≈ pcw rtol = 1e-8
+    # without Σ log|θ| (as before) the units changed the complexity by log(c)
+    FIc = information_matrix(lc, m, [pw[1] / c, pw[2]])
+    @test logdet(Symmetric(FIc)) / 2 ≈ logdet(Symmetric(FIw)) / 2 + log(c) rtol = 1e-8
+
+    # uncorrelated parameters (diagonal information matrix): the joint lattice
+    # costs exactly log(v_p) - (-log(3)) = 1/2 nat more per parameter than Eq. 5
+    xo = collect(range(-1.0, 1.0; length = 201))
+    yo = 2 .* xo .+ 0.5
+    lo = GaussianLikelihood(reshape(xo, :, 1), yo, 0.01)
+    po = [2.0, 0.5]
+    @test isdiag(round.(information_matrix(lo, m, po); digits = 8))
+    @test param_complexity_det(po, lo, m) - param_complexity(po, lo, m) ≈ length(po) / 2
 end
 
 @testset "param_complexity_det reports a reduced rank through @debug" begin
@@ -281,6 +306,10 @@ end
         redirect_stdout(() -> param_complexity_det(pd, ld, md), io)
     end
     @test isfinite(v)
+    # the undetermined direction costs only its sign
+    D = Diagonal(abs.(pd))
+    μ = sort(max.(eigvals(Symmetric(D * information_matrix(ld, md, pd) * D)), 0.0); rev = true)
+    @test v ≈ 2 * log(2) + max(0.0, log(μ[1]) / 2 + (1 - log(3)) / 2 - log(2))
     # a model search calls this once per candidate, so the branch must not
     # write to stdout ...
     @test isempty(read(out, String))
@@ -314,7 +343,11 @@ end
           sum(log(2) + max(0.0, log(abs(pproj[i])) + log(abs(e.values[i])) / 2 - log(3) / 2 - log(2))
               for i in eachindex(λ))
     # determinant: the negative direction is a rank deficiency
-    @test param_complexity_det(pn, ln, mn) ≈ sum(log, filter(>(0), λ)) / 2 + 2 / 2 * (1 - log(3))
+    Dn = Diagonal(abs.(pn))
+    μn = eigvals(Symmetric(Dn * FI * Dn))   # same inertia as FI: one negative
+    @test count(<(0), μn) == 1
+    @test param_complexity_det(pn, ln, mn) ≈
+          3 * log(2) + sum(max(0.0, log(x) / 2 + (1 - log(3)) / 2 - log(2)) for x in filter(>(0), μn))
     # unrotated: the diagonal of the information matrix without the negative part
     @test param_complexity(pn, ln, mn) ≈
           SymRegModelSelection.param_complexity(pn, diag(e.vectors * Diagonal(λ) * e.vectors'))

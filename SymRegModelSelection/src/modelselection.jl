@@ -48,21 +48,22 @@ end
 """
     param_complexity_det(p, l, model) -> Float64
 
-Parameter complexity from the *determinant* of the information matrix
-(https://arxiv.org/pdf/2304.06333 Eq. 6), which discretises the parameters
-jointly on a rectangular lattice of free orientation rather than separately in
-each dimension, and so accounts for their degeneracy. Returns `NaN` if the
-information matrix has non-finite entries.
+Parameter complexity with the parameters discretised jointly on a rectangular
+lattice of free orientation (https://arxiv.org/pdf/2304.06333, text after Eq. 5),
+which accounts for their degeneracy.  This replaces the group
+`Σ_α ½ log(I_αα) - (p/2) log(3)` of Eq. 5 by `½ log det(I) + (p/2) log(v_p)` with
+`log(v_p) = 1 - log(3)`; the term `Σ_α log|θ_α|` of Eq. 5 remains (Eq. 6 drops it
+only together with an explicit parameter prior).  Without it the complexity
+changes with the units of the parameters.
 
-Eq. 5 — what `param_complexity` and `param_complexity_rot` implement — carries
-`Σ_α ½ log(I_αα) - (p/2) log(3)`. Eq. 6 replaces that whole group by
-
-    ½ log det(I) + (p/2) log(v_p),        log(v_p) = 1 - log(3)
-
-as two separate summands. `p` is the effective rank of `I` here rather than the
-parameter count, and `det` the corresponding pseudo-determinant, so a rank
-deficiency costs nothing instead of sending the complexity to `-Inf`.
-Negative eigenvalues count as zero precision, i.e. as a rank deficiency.
+The two terms are combined as `½ log det(D I D)` with `D = diag|θ|`, i.e. as
+`Σ_i ½ log(μ_i)` over the eigenvalues `μ_i` of the information matrix in relative
+coordinates `θ_α / |θ_α|` (as in [`param_complexity_rot_scaled`](@ref)), and
+clamped per direction like [`param_complexity_rot`](@ref): each direction costs
+`log(2)` for the sign plus `max(0, ½ log(μ_i) + ½ log(v_p) - log(2))`.  Directions
+beyond the effective rank of `D I D` (negative eigenvalues count as zero
+precision) cost only `log(2)`.  Returns `NaN` if the information matrix has
+non-finite entries.
 """
 function param_complexity_det(p::AbstractVector, l::AbstractLikelihood, model::Model)
     length(p) > 0 || return 0.0
@@ -70,15 +71,19 @@ function param_complexity_det(p::AbstractVector, l::AbstractLikelihood, model::M
     FI = information_matrix(l, model, p)
     all(isfinite, FI) || return NaN
 
-    λ = sort(first(_nonnegative_eigen(FI)); rev = true)
+    D = Diagonal(abs.(p))
+    μ = sort(first(_nonnegative_eigen(D * FI * D)); rev = true)
 
-    r = _effective_rank(λ)
+    r = _effective_rank(μ)
     if r < length(p)
         @debug "Fisher information matrix is rank deficient" rank = r n_param = length(p)
     end
-    log_det_r = sum(log, view(λ, 1:r); init = 0.0)
-    log_vp = 1 - log(3)
-    log_det_r / 2 + r / 2 * log_vp
+    half_log_vp = (1 - log(3)) / 2
+    p_compl = length(p) * log(2)  # the sign of every direction, determined or not
+    for i in 1:r
+        p_compl += max(0.0, log(μ[i]) / 2 + half_log_vp - log(2))
+    end
+    p_compl
 end
 
 
