@@ -74,7 +74,7 @@ function find_best_snap_for_pidx(l, model, p, pidx)
         new_model = replace_param_with_const(model, pidx, ri)
         x0 = vcat(p[1:pidx-1], p[pidx+1:end])   # always start from original parameters
         optresult = optimize(l, new_model, x0)
-        p_approx = optresult.x
+        p_approx = convert(Vector{eltype(p)}, optresult.x)
         dl_approx,_ = description_length(l, new_model, p_approx)
         delta_dl = dl_approx - dl_start
         if delta_dl < best_delta_dl
